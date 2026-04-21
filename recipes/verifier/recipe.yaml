@@ -1,0 +1,132 @@
+version: "1.0.0"
+title: Constantia Adversarial Verifier
+description: >-
+  Second-pass critic for LLM findings. Given one violation finding
+  plus the concept principle it cites, decides whether the finding
+  actually holds on re-reading the file, or whether the investigator
+  drifted. Drops drifted findings before they reach the report.
+
+parameters:
+  - key: concept_id
+    input_type: string
+    requirement: required
+    description: The concept being verified.
+  - key: concept_principle
+    input_type: string
+    requirement: required
+    description: The principle text the finding cites.
+  - key: rule_id
+    input_type: string
+    requirement: required
+    description: The rule the finding came from.
+  - key: file_path
+    input_type: string
+    requirement: required
+    description: Repo-relative path of the file under review.
+  - key: line
+    input_type: string
+    requirement: required
+    description: The cited line number (stringified).
+  - key: symbol
+    input_type: string
+    requirement: required
+    description: Distinctive substring near the cited line.
+  - key: message
+    input_type: string
+    requirement: required
+    description: The investigator's violation message.
+  - key: evidence
+    input_type: string
+    requirement: optional
+    description: Investigator's own evidence quote, if any.
+
+settings:
+  goose_provider: mistral
+  goose_model: mistral-medium-latest
+
+extensions:
+  - type: platform
+    name: developer
+    bundled: true
+    description: Read-only shell + text_editor to spot-check the cited location.
+    available_tools:
+      - shell
+      - text_editor
+
+instructions: |
+  You are an ADVERSARIAL verifier. A previous pass claimed a
+  violation of the concept principle in one file at one line. Your
+  job is to decide whether that claim actually holds. Default to
+  skepticism — it's cheaper to drop a wrong finding than to let
+  semantic drift reach the report.
+
+  ## How to verify
+
+  1. Use `text_editor view` on `{{ file_path }}` around line
+     `{{ line }}` (±15 lines is usually enough). Confirm the symbol
+     `{{ symbol }}` is actually there and that the surrounding code
+     does what the message claims.
+  2. Judge the concrete code against the principle verbatim. Do NOT
+     substitute your own taste for what "good code" looks like.
+  3. One or two `rg` cross-checks are fine if the message depends on
+     context from another file (e.g. "this type lacks field X" — grep
+     the type declaration). No more than 3 tool calls total.
+  4. Never use `text_editor` to create or edit. Read-only.
+
+  ## Drop the finding (verdict: drop) when ANY of these hold
+
+  - The cited line does NOT actually exhibit the claimed violation on
+     re-reading. The investigator misread the code.
+  - The message describes a general concern but the principle text
+     doesn't actually forbid this pattern — scope drift onto a
+     different rule.
+  - The cited construct has a legitimate reason (test fixture, mock,
+     explicit opt-out, well-known exception the principle allows).
+  - The line number is off and the symbol is nowhere nearby.
+
+  ## Keep the finding (verdict: keep) when
+
+  - The cited code is a direct, unambiguous violation of the
+     principle, and you can point at the same line from the same
+     evidence the investigator cited.
+  - You are genuinely uncertain — keep and note the uncertainty in
+     `reason`. Over-keeping is fine; the report's job is to surface
+     candidates, not to suppress them.
+
+  ## Reason
+
+  One sentence, concrete. On drop, explain what the investigator
+  misread or why the principle doesn't apply. On keep, one-line
+  confirmation is enough.
+
+  ## The subject
+
+  - Concept: **{{ concept_id }}**
+  - Rule: **{{ rule_id }}**
+  - File: `{{ file_path }}`
+  - Line: {{ line }}
+  - Symbol: `{{ symbol }}`
+  - Investigator's message: {{ message }}
+  - Investigator's evidence: {{ evidence }}
+
+  ## Principle (the standard)
+
+  {{ concept_principle }}
+
+prompt: |
+  Verify the finding above by reading `{{ file_path }}` around line
+  {{ line }}. Return only the JSON response.
+
+response:
+  json_schema:
+    type: object
+    additionalProperties: false
+    required: [verdict, reason]
+    properties:
+      verdict:
+        type: string
+        enum: [keep, drop]
+        description: keep = finding survives into the report. drop = investigator drifted.
+      reason:
+        type: string
+        description: One sentence explaining the verdict.
