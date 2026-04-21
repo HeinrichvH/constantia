@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# constantia — consistency scanner CLI entrypoint.
+#
+# Thin wrapper around `python -m constantia.cli`. Finds the project root
+# relative to this script so it works regardless of CWD.
+
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+export PYTHONPATH="$script_dir/src${PYTHONPATH:+:$PYTHONPATH}"
+
+exec python3 -m constantia.cli "$@"
