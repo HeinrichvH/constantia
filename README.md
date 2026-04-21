@@ -121,10 +121,13 @@ measurement; measurements don't modify the thing they measure.
 
 From the first production run against a 20 000-file monorepo, twelve concepts, 267 findings, three concepts clean:
 
-| Finding | Count | ---|---|
-| Fabricated `GrpcRequestBase` instances across C# handlers | 62 / 278 files | Stale path citations across markdown + 
-| `CLAUDE.md` files | 76 / 358 files | Cited-path purpose mismatches (path exists, content doesn't match prose) | 47 | `base` 
-| fabrications on the TypeScript side of the same convention | 16 | Proto RPCs defined with no C# handler | 5 | 
+| Finding | Count |
+| --- | --- |
+| Fabricated `GrpcRequestBase` instances across C# handlers | 62 / 278 files |
+| Stale path citations across markdown + `CLAUDE.md` files | 76 / 358 files |
+| Cited-path purpose mismatches (path exists, content doesn't match prose) | 47 |
+| `base` fabrications on the TypeScript side of the same convention | 16 |
+| Proto RPCs defined with no C# handler | 5 |
 | `OrganizationIds` filter omissions | 3 |
 
 Every non-trivial finding mapped onto a previously-written lesson the team had learned and recorded. Constantia did not 
@@ -133,10 +136,12 @@ discover the rules; it re-discovered, from the code alone, which rules the repos
 ## Status
 
 | | |
-|---|---| Deterministic stage | Stable. Stdlib-only runtime (`pyyaml`, `jsonschema`). | LLM stage | Stable. Requires Goose + 
-| Mistral API key. | Distribution | Docker today. `pipx install constantia` planned. | Guided checks | Two registered 
-| (`proto-rpcs-have-handlers`, `markdown-cited-paths-exist`). New ones welcome as PRs. | API stability | Pre-1.0. Concept and 
-| rule schemas may change; breaking changes will be noted in release notes. |
+| --- | --- |
+| Deterministic stage | Stable. Stdlib-only runtime (`pyyaml`, `jsonschema`). |
+| LLM stage | Stable. Requires Goose + Mistral API key. |
+| Distribution | Docker today. `pipx install constantia` planned. |
+| Guided checks | Two registered (`proto-rpcs-have-handlers`, `markdown-cited-paths-exist`). New ones welcome as PRs. |
+| API stability | Pre-1.0. Concept and rule schemas may change; breaking changes will be noted in release notes. |
 
 ## Further reading
 
