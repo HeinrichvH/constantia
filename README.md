@@ -9,16 +9,13 @@ adversarial verifier — in that order, never mixed.
 
 ## When the repository disagrees with itself
 
-A pull request lands. The handler is correct. The test is correct. But three files away a markdown document cites a function 
-that was renamed six months ago, and two services over a gRPC handler fabricates an identity base it was explicitly told never 
-to fabricate. No compiler catches it. No linter catches it. The test suite is green. An AI agent reading the repo tomorrow 
-will follow the broken citation, copy the forbidden pattern, and confidently produce code that conforms to documentation that 
-no longer describes anything real.
+A PR lands. The handler is correct, the test is green. But three files away a markdown document cites a function that was
+renamed six months ago, and two services over a gRPC handler fabricates an identity base it was told never to fabricate. No
+compiler catches it. No linter catches it.
 
-This is drift — the accumulated disagreement between a repository's code, its documentation, and its conventions. Humans 
-survive drift because they bring skepticism. Agents do not. Every stale reference becomes a factual claim they will act on; 
-every fabricated pattern becomes a template they will replicate. When the readership shifts from human to agent, the cost of 
-internal contradiction stops being cosmetic — it becomes load-bearing.
+A human reviewer would bring skepticism to the stale citation and the forbidden pattern. An AI agent reading the repo tomorrow
+won't — it treats both as ground truth and replicates them. When the primary reader shifts from human to agent, internal
+contradiction stops being cosmetic.
 
 Constantia measures it.
 
@@ -37,15 +34,23 @@ and the file under inspection. It returns one of four verdicts: *fit*, *violatio
 LLM pass — the adversarial verifier — re-reads each claimed violation and tries to defeat it. Only findings that survive the 
 adversary land in the report.
 
-**Two decorrelated models, not two copies of the same.** The investigator runs on [Mistral Devstral](https://mistral.ai/) — 
-code-tuned, cheap per call. The verifier runs on `mistral-medium-latest` — different lineage, different biases, no investment 
-in the investigator's pattern-match. Redundant components only catch errors when their failure modes are uncorrelated; two 
-copies of the same model confirm each other instead of checking each other.
+**Two differently-specialised models.** The investigator runs on [Mistral Devstral](https://mistral.ai/) — code-tuned, cheap
+per call. The verifier runs on `mistral-medium-latest` — general-purpose, no investment in the investigator's pattern-match.
+They share a vendor and alignment lineage, so they are not fully independent; what they are is specialised for different jobs.
+That's enough to catch the failure mode this layer is designed for: an investigator that over-indexes on surface pattern
+similarity and claims a violation a general reader would see through.
 
-**Goose as the runner.** LLM calls go through [block/goose](https://github.com/block/goose), whose recipe files are the 
-correct abstraction for this use case: they are *data*, not code. The investigator and verifier prompts, models, and tool 
-surfaces live in `recipes/investigator/recipe.yaml` and `recipes/verifier/recipe.yaml` — reviewable in isolation, swappable 
+**Goose as the runner.** LLM calls go through [block/goose](https://github.com/block/goose), whose recipe files are the
+correct abstraction for this use case: they are *data*, not code. The investigator and verifier prompts, models, and tool
+surfaces live in `recipes/investigator/recipe.yaml` and `recipes/verifier/recipe.yaml` — reviewable in isolation, swappable
 without a code change. Pinning a new model means editing one YAML field.
+
+**The shipped guided checks are templates, not coverage.** Two check types ship: `proto-rpcs-have-handlers` (cross-file lookup
+between `.proto` and C# MediatR handlers) and `markdown-cited-paths-exist` (per-file regex + existence). They illustrate the
+two common shapes a guided check takes; they are not an off-the-shelf rule library for your stack. If you run a Python, Go,
+or Rust codebase and want deterministic coverage, you will write checks — the contract is ~30 lines in
+[`src/constantia/checks/README.md`](./src/constantia/checks/README.md). The LLM-investigated path ships more portably because
+it reads any language the model does.
 
 ## Quick start
 
@@ -65,6 +70,20 @@ report posted as an issue instead of printed. For GitHub (or GitHub Enterprise) 
 `GITHUB_REPO` (the `owner/repo` pair), optionally `GITHUB_API_URL` for self-hosted installs. Both reporters upsert a single
 open issue labeled `constantia` and no-op when the content hash is unchanged, so repeated runs don't spam notifications.
 
+### What this costs
+
+The deterministic stage is free — stdlib only, no API calls, runs offline. The LLM stage bills per file investigated:
+
+| Run shape | Typical cost |
+| --- | --- |
+| `--skip-llm` (deterministic only) | \$0 |
+| Full scan, 20 000-file repo, 5 LLM rules | **~\$5–20** |
+| Per-file LLM investigation average | ~\$0.01 (devstral) + ~\$0.005 verifier (claimed violations only) |
+
+Budget the full run for a nightly or weekly scheduled scan; run `--skip-llm` in pre-commit or per-PR. A Mistral invoice of a
+few dollars a month beats one agent-authored PR built on a six-month-stale citation — but it is not free, and you should
+treat it as a line item, not a rounding error.
+
 ## The concept file is the interesting artifact
 
 The scanner code is the least interesting thing in this repository. The real payload is the concept definitions — 
@@ -77,8 +96,8 @@ machine-readable written agreements a team has with itself:
   rationale: | Fabricated bases silently drop identity, tracing, and locale.
 ```
 
-Every concept encodes a convention that was previously either tribal knowledge or a scar-tissue comment in a pull request 
-review. Making it explicit, versioned, and checkable turns folklore into invariant.
+Every concept encodes a convention that was previously either tribal knowledge or a scar-tissue comment in a PR review.
+Writing it down makes it reviewable, diffable, and checkable.
 
 Rules pair a concept with a selector (glob + regex) and either a guided check (Python) or an LLM investigator (Goose recipe):
 
@@ -94,9 +113,10 @@ fabrication, filter omissions, stale documentation citations, and translatable e
 
 ## Design principles
 
-**The scanner is a meter, not a gate.** A constantia run succeeds with exit code 0 even when drift is found. The finding is 
-the signal; the forge issue is the alert. A red run means the scanner itself broke — a clone failure, an unreachable model, a 
-schema error in a concept file. Conflating "drift exists" with "run failed" trains operators to mute the alert.
+**The scanner is a meter, not a gate.** A constantia run succeeds with exit code 0 even when drift is found — because a
+finding is a measurement, not a verdict. The report is the signal; the forge issue is the alert. A red run means the scanner
+itself broke (clone failure, unreachable model, invalid concept file). Collapsing "drift exists" into "run failed" trains
+operators to mute the alert, and the second time a linter gets muted it stops getting re-enabled.
 
 **Deterministic and LLM findings never mix.** Each has its own section in the report, its own content hash, its own 
 reproducibility guarantee. A reader who trusts only the deterministic layer can ignore the LLM section entirely and still get 
@@ -132,8 +152,8 @@ From the first production run against a 20 000-file monorepo, twelve concepts, 2
 | Proto RPCs defined with no C# handler | 5 |
 | `OrganizationIds` filter omissions | 3 |
 
-Every non-trivial finding mapped onto a previously-written lesson the team had learned and recorded. Constantia did not 
-discover the rules; it re-discovered, from the code alone, which rules the repository was still silently violating.
+Every non-trivial finding mapped onto a previously-written lesson the team had already learned. The scanner did not discover
+the rules; it re-discovered, from the code alone, which rules the repository was still silently violating.
 
 ## Status
 
@@ -147,8 +167,8 @@ discover the rules; it re-discovered, from the code alone, which rules the repos
 
 ## Further reading
 
-The design choices above — two decorrelated models, meter-not-gate, never mixing deterministic and LLM output — are argued at 
-length in the companion article:
+The design choices above — two differently-specialised models, meter-not-gate, never mixing deterministic and LLM output — are
+argued at length in the companion article:
 
 - **The Drift Scanner — When the Repository Disagrees With Itself** *(Article URL will be added when it publishes, 
   2026-04-22.)*
