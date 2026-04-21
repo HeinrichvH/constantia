@@ -60,8 +60,10 @@ to a forge — a Forgejo or GitHub token.
 Add `--skip-llm` to run only the deterministic stage — useful in pre-commit hooks or fast CI where you want a cheap drift 
 signal without the Mistral round-trip.
 
-Add `--forgejo-issue` with the appropriate environment variables (`FORGEJO_URL`, `FORGEJO_TOKEN`, `FORGEJO_REPO`) to have the 
-report posted as an issue instead of printed.
+Add `--forgejo-issue` with the appropriate environment variables (`FORGEJO_URL`, `FORGEJO_TOKEN`, `FORGEJO_REPO`) to have the
+report posted as an issue instead of printed. For GitHub (or GitHub Enterprise) use `--github-issue` with `GITHUB_TOKEN` and
+`GITHUB_REPO` (the `owner/repo` pair), optionally `GITHUB_API_URL` for self-hosted installs. Both reporters upsert a single
+open issue labeled `constantia` and no-op when the content hash is unchanged, so repeated runs don't spam notifications.
 
 ## The concept file is the interesting artifact
 

@@ -358,6 +358,24 @@ def cmd_scan(args: argparse.Namespace) -> int:
         # flags every run with drift as broken.
         return 0
 
+    if args.github_issue:
+        import os
+        token = os.environ.get("GITHUB_TOKEN")
+        repo = os.environ.get("GITHUB_REPO")
+        api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+        if not (token and repo):
+            print(f"{RED}error:{RESET} --github-issue needs GITHUB_TOKEN and GITHUB_REPO env vars "
+                  f"(GITHUB_API_URL optional, defaults to https://api.github.com)", file=sys.stderr)
+            return 2
+        from .reporter_github import upsert_report_issue as upsert_gh
+        combined_hash = f"{report.guided['content_hash']}+{report.llm['content_hash']}"
+        upsert_gh(
+            api_url=api_url, repo=repo, token=token,
+            body_md=md, content_hash=combined_hash,
+            any_findings=bool(total),
+        )
+        return 0
+
     return 1 if total else 0
 
 
@@ -422,6 +440,9 @@ def main(argv: list[str] | None = None) -> int:
     sa.add_argument("--md-out", help="write markdown report to this path")
     sa.add_argument("--forgejo-issue", action="store_true",
                     help="upsert a single Forgejo issue with the report (needs FORGEJO_TOKEN/URL/REPO env)")
+    sa.add_argument("--github-issue", action="store_true",
+                    help="upsert a single GitHub issue with the report "
+                         "(needs GITHUB_TOKEN/GITHUB_REPO env; GITHUB_API_URL optional for Enterprise)")
     sa.set_defaults(func=cmd_scan)
 
     args = p.parse_args(argv)
