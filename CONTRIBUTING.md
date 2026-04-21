@@ -67,7 +67,5 @@ local iteration.
 
 ## Reporting security issues
 
-Please do not open a public issue for anything that looks like a security
-vulnerability in the scanner itself (e.g. a concept file that could be
-crafted to execute code). Email the maintainer directly — the address is
-on the GitHub profile.
+See [SECURITY.md](./SECURITY.md). Short version: email the maintainer,
+don't open a public issue.
