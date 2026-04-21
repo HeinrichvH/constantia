@@ -1,2 +1,2 @@
 # constantia
-Generic rule based watcher for keeping your repo aligned. Main goal is to keep context frictionless for better CoWork with LLM Agents.
+Deterministic monorepo watcher with optional local-LLM augmentation. Catches drift before it poisons the context your coding agents read.
