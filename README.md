@@ -155,6 +155,11 @@ length in the companion article:
 
 Part of the *Building with AI* series on what changes when a codebase's primary reader stops being human.
 
+## Contributing
+
+New guided checks, concept templates, and reporters are welcome. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) for scope, dev setup, and PR expectations.
+
 ## License
 
 Apache License 2.0. See [LICENSE](./LICENSE).
