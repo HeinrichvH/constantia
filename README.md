@@ -173,10 +173,7 @@ the rules; it re-discovered, from the code alone, which rules the repository was
 ## Further reading
 
 The design choices above — two differently-specialised models, meter-not-gate, never mixing deterministic and LLM output — are
-argued at length in the companion article:
-
-- **The Drift Scanner — When the Repository Disagrees With Itself** *(Article URL will be added when it publishes, 
-  2026-04-22.)*
+argued at length in the companion article: [Drfit Scanner](https://github.com/HeinrichvH/articles/blob/main/building-with-ai/04-drift-scanner/04-drift-scanner.md)
 
 Part of the *Building with AI* series on what changes when a codebase's primary reader stops being human.
 
