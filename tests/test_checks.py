@@ -19,6 +19,137 @@ def test_registry_has_expected_checks() -> None:
     names = registered_names()
     assert "proto-rpcs-have-handlers" in names, names
     assert "markdown-cited-paths-exist" in names, names
+    assert "orphan-markers-without-reference" in names, names
+    assert "deprecation-has-migration-path" in names, names
+
+
+def _run_orphan(text: str, filename: str = "f.py") -> list:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        p = root / filename
+        p.write_text(text)
+        check = get_check("orphan-markers-without-reference")
+        return check.run(
+            file_path=p, repo_root=root, config={},
+            rule_id="r", concept_id="c", severity="low",
+        )
+
+
+def test_orphan_bare_todo_is_flagged() -> None:
+    findings = _run_orphan("# TODO: clean this up later\nx = 1\n")
+    assert len(findings) == 1, [f.message for f in findings]
+    assert "TODO" in findings[0].message
+
+
+def test_orphan_todo_with_issue_number_is_ok() -> None:
+    findings = _run_orphan("# TODO: clean this up (#1234)\nx = 1\n")
+    assert findings == [], [f.message for f in findings]
+
+
+def test_orphan_todo_with_author_is_ok() -> None:
+    findings = _run_orphan("# TODO(alice): clean this up\nx = 1\n")
+    assert findings == [], [f.message for f in findings]
+
+
+def test_orphan_todo_with_url_is_ok() -> None:
+    findings = _run_orphan(
+        "# TODO: see https://example.com/issue/42\nx = 1\n"
+    )
+    assert findings == [], [f.message for f in findings]
+
+
+def test_orphan_fixme_in_string_is_ignored() -> None:
+    # "TODO" inside a string literal should not match — not a comment.
+    findings = _run_orphan('msg = "TODO something"\n')
+    assert findings == [], [f.message for f in findings]
+
+
+def test_orphan_skip_in_ts_test_is_flagged() -> None:
+    findings = _run_orphan(
+        "it.skip('flaky', () => { expect(1).toBe(1) })\n",
+        filename="f.ts",
+    )
+    assert len(findings) == 1, [f.message for f in findings]
+
+
+def test_orphan_skip_with_nearby_issue_ref_is_ok() -> None:
+    findings = _run_orphan(
+        "// see #99\nit.skip('flaky', () => {})\n",
+        filename="f.ts",
+    )
+    assert findings == [], [f.message for f in findings]
+
+
+def test_orphan_allow_dead_code_without_ref_is_flagged() -> None:
+    findings = _run_orphan(
+        "#[allow(dead_code)]\nfn unused() {}\n",
+        filename="f.rs",
+    )
+    assert len(findings) == 1
+
+
+def _run_deprecation(text: str, filename: str = "f.py") -> list:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        p = root / filename
+        p.write_text(text)
+        check = get_check("deprecation-has-migration-path")
+        return check.run(
+            file_path=p, repo_root=root, config={},
+            rule_id="r", concept_id="c", severity="medium",
+        )
+
+
+def test_deprecation_bare_is_flagged() -> None:
+    findings = _run_deprecation(
+        "@deprecated\ndef old_fn(): pass\n"
+    )
+    assert len(findings) == 1
+
+
+def test_deprecation_with_use_hint_is_ok() -> None:
+    findings = _run_deprecation(
+        "@deprecated  # use new_fn instead\ndef old_fn(): pass\n"
+    )
+    assert findings == [], [f.message for f in findings]
+
+
+def test_deprecation_with_version_is_ok() -> None:
+    findings = _run_deprecation(
+        "@deprecated  # removed in v2.0\ndef old_fn(): pass\n"
+    )
+    assert findings == [], [f.message for f in findings]
+
+
+def test_deprecation_multiline_with_url_in_window_is_ok() -> None:
+    # URL five lines away (the typical shape of Python @deprecated("… long
+    # message with URL inside …") multi-line decorators). The hint
+    # window is ±5 lines for exactly this case.
+    findings = _run_deprecation(
+        "@deprecated(\n"
+        "    'this is gone,'\n"
+        "    'please read'\n"
+        "    'the docs at'\n"
+        "    'https://example.com/migration')\n"
+        "def old_fn(): pass\n"
+    )
+    assert findings == [], [f.message for f in findings]
+
+
+def test_deprecation_obsolete_csharp_bare_is_flagged() -> None:
+    findings = _run_deprecation(
+        "[Obsolete]\npublic void OldMethod() {}\n",
+        filename="f.cs",
+    )
+    assert len(findings) == 1
+
+
+def test_deprecation_obsolete_with_message_hint_is_ok() -> None:
+    findings = _run_deprecation(
+        '[Obsolete("use NewMethod instead")]\npublic void OldMethod() {}\n',
+        filename="f.cs",
+    )
+    assert findings == [], [f.message for f in findings]
 
 
 def test_proto_rpc_parse() -> None:

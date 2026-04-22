@@ -13,12 +13,16 @@ from constantia.config import ConfigError, load_catalogue
 from constantia.selector import Selector, select_files
 
 
-EXAMPLES = Path(__file__).resolve().parents[1] / "examples" / "aquilo"
+EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
 
 def test_example_aquilo_loads_clean() -> None:
     cat = load_catalogue(EXAMPLES)
     assert {c.id for c in cat.concepts} == {
+        "markers-are-trackable",
+        "tests-assert-their-name",
+        "deprecations-point-somewhere",
+        "agent-docs-match-code",
         "grpc-request-base-forwarding",
         "grpc-filter-organization-ids",
         "grpc-proto-first",

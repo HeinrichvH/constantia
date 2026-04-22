@@ -55,6 +55,19 @@ instructions: |
   output is the final JSON response. You are judging ONE file against
   ONE concept's principle.
 
+  ## Output shape — per-item structured verdicts
+
+  You enumerate the concrete things in the file the principle judges
+  (each test block, each deprecation marker, each handler method — the
+  investigation instructions tell you what). For EACH one you emit an
+  `item` with an explicit `verdict` enum: `fit`, `not_applicable`, or
+  `violation`. This is a tool-call-style contract — you commit
+  per-item, you cannot say one thing in prose and another in the
+  verdict.
+
+  If the rule judges the file AS A WHOLE (no enumeration), emit ONE
+  item whose citation points at the top of the file.
+
   ## Operating rules
 
   1. **Read the target file first.** Use `text_editor` view on
@@ -62,32 +75,32 @@ instructions: |
   2. **Judge against the principle verbatim.** The caller pasted the
      concept's `principle` field below; it is the standard. Do not
      substitute your own intuition about "good code".
-  3. **Only emit `violation` findings.** `fit` lines are implicit — a
-     clean file returns `verdict: fit` and an empty findings array. If
-     you genuinely cannot decide, return `verdict: uncertain` with a
-     one-sentence reason in `summary` and no findings.
+  3. **Per-item verdict is load-bearing.** For each item you emit,
+     the `verdict` MUST match what you wrote in `message`. If the
+     message says "name is generic, nothing to verify" the verdict is
+     `not_applicable`, NOT `violation`. The caller only promotes
+     `verdict: violation` items into findings; everything else is
+     audit trail.
   4. **The `symbol` is authoritative; the line number is a hint.** The
      caller resolves the real line by grepping for the `symbol` in
      the file — so what matters is that the symbol appears literally
      in the source. Give a distinctive substring (a method signature,
      a full `new TypeName { ... }` expression, an exact quoted
      string), not a generic token like "Send" that appears everywhere.
-     If the symbol isn't findable in the file, the finding is
-     stripped as fabricated.
+     If the symbol isn't findable in the file, the item is stripped
+     as fabricated.
   5. **Shell is for ripgrep only.** `rg` to cross-check a symbol in
      neighbouring files is fine. No writes, no builds, no network.
      NEVER use `text_editor` to create or edit.
-  6. **Stay inside the target file for violations.** The citation of
-     every finding must be `{{ file_path }}:<line>`. Context from other
-     files is fine as justification inside `evidence`, but the
-     violation itself lives in this file.
-  7. **Don't dump code.** Quote ≤6 lines total across all findings.
+  6. **Stay inside the target file.** Every item's citation must be
+     `{{ file_path }}:<line>`. Context from other files belongs in
+     `evidence`, but the item itself lives in this file.
+  7. **Don't dump code.** Quote ≤6 lines total across all items.
      Prefer prose + citation.
-  8. **No findings for absent features.** If the concept doesn't apply
-     to this file (e.g. the file doesn't actually construct the
-     objects the principle is about), return `verdict: not_applicable`
-     with an empty findings array. Do not invent violations to look
-     productive.
+  8. **No fabrication.** If the concept doesn't apply to this file
+     (e.g. the file doesn't construct the objects the principle is
+     about), emit a SINGLE item with `verdict: not_applicable` and a
+     one-sentence reason. Do not invent violations to look productive.
 
   ## The subject
 
@@ -111,32 +124,34 @@ response:
   json_schema:
     type: object
     additionalProperties: false
-    required: [verdict, summary, findings]
+    required: [summary, items]
     properties:
-      verdict:
-        type: string
-        enum: [fit, violation, uncertain, not_applicable]
-        description: >-
-          Whole-file verdict. `fit` = principle applies and is upheld.
-          `violation` = at least one finding. `uncertain` = couldn't
-          decide. `not_applicable` = principle doesn't apply to this
-          file despite the selector match.
       summary:
         type: string
-        description: 1–2 sentences stating the verdict and its basis.
-      findings:
+        description: 1–2 sentences stating the overall basis of the judgement.
+      items:
         type: array
         description: >-
-          One entry per violation. MUST be empty unless verdict is
-          `violation`. Each citation is re-verified by the caller.
+          One entry per thing the investigation enumerates (each test,
+          each marker, each handler) OR a single entry representing
+          the whole file if the rule judges it as a whole. Each item
+          carries its own verdict. The caller derives the file-level
+          verdict from this array and promotes ONLY `violation` items
+          into findings.
         items:
           type: object
           additionalProperties: false
-          required: [message, citation, symbol]
+          required: [verdict, citation, symbol, message]
           properties:
-            message:
+            verdict:
               type: string
-              description: One concrete violation phrased as a fact.
+              enum: [fit, not_applicable, violation]
+              description: >-
+                Per-item verdict. `fit` = item upholds the principle.
+                `not_applicable` = principle doesn't judge this item
+                (e.g. generic test name with no specific claim).
+                `violation` = item breaks the principle; the caller
+                will promote this into a finding.
             citation:
               type: string
               pattern: "^(?!/).+:[0-9]+(-[0-9]+)?$"
@@ -149,10 +164,16 @@ response:
               description: >-
                 Distinctive substring that appears within ±3 lines of
                 the citation. Copied verbatim from tool output. The
-                caller re-reads the file and rejects findings whose
+                caller re-reads the file and rejects items whose
                 symbol is not present.
+            message:
+              type: string
+              description: >-
+                For `violation`: one concrete violation phrased as a
+                fact. For `fit` / `not_applicable`: one sentence
+                justifying the verdict (audit trail).
             evidence:
               type: string
               description: >-
                 Optional 1–3 lines of quoted code or prose explaining
-                why this is a violation against the principle.
+                the verdict against the principle.

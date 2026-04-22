@@ -10,7 +10,7 @@ Thanks for considering a contribution. The project is small and opinionated
   tests. The `src/constantia/checks/` directory ships two reference
   implementations (`proto_handlers.py`, `markdown_paths.py`) and a README
   describing the contract.
-- **Concept templates.** `examples/aquilo/` is the shape of a production
+- **Concept templates.** `examples/` is the shape of a production
   set, not a prescription. If you've written a concept set that generalises
   (gRPC conventions, React prop discipline, Terraform module hygiene),
   open a PR adding it under `examples/<name>/`.

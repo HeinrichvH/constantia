@@ -74,11 +74,16 @@ class Checkpoint:
                 continue
             if "file" not in obj or "verdict" not in obj:
                 continue
+            # Back-compat: old checkpoints wrote `findings`; map onto items.
+            legacy_findings = obj.get("findings")
+            items = obj.get("items")
+            if items is None and legacy_findings is not None:
+                items = [{**f, "verdict": "violation"} for f in legacy_findings]
             by_file[obj["file"]] = Verdict(
                 file=obj["file"],
                 verdict=obj["verdict"],
                 summary=obj.get("summary", ""),
-                findings=tuple(obj.get("findings") or ()),
+                items=tuple(items or ()),
                 raw=obj.get("raw", {}),
             )
         if header_fp != self.fingerprint:
@@ -100,7 +105,7 @@ class Checkpoint:
             "file": v.file,
             "verdict": v.verdict,
             "summary": v.summary,
-            "findings": list(v.findings),
+            "items": list(v.items),
             "raw": v.raw,
         }
         line = json.dumps(record, separators=(",", ":")) + "\n"

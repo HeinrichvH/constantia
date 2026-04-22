@@ -319,13 +319,21 @@ def cmd_scan(args: argparse.Namespace) -> int:
     )
     md = render_markdown(report)
 
-    if args.json_out:
-        Path(args.json_out).write_text(report.to_json())
-        print(f"\n{GREEN}wrote{RESET} {args.json_out}")
-    if args.md_out:
-        Path(args.md_out).write_text(md)
-        print(f"{GREEN}wrote{RESET} {args.md_out}")
-    if not args.json_out and not args.md_out:
+    json_out = args.json_out
+    md_out = args.md_out
+    if args.output_dir:
+        out = Path(args.output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        json_out = json_out or str(out / "findings.json")
+        md_out = md_out or str(out / "findings.md")
+
+    if json_out:
+        Path(json_out).write_text(report.to_json())
+        print(f"\n{GREEN}wrote{RESET} {json_out}")
+    if md_out:
+        Path(md_out).write_text(md)
+        print(f"{GREEN}wrote{RESET} {md_out}")
+    if not json_out and not md_out:
         print()
         print(md)
 
@@ -438,6 +446,8 @@ def main(argv: list[str] | None = None) -> int:
     sa.add_argument("--clear-checkpoint", action="store_true", help="delete checkpoints on successful completion")
     sa.add_argument("--json-out", help="write JSON report to this path")
     sa.add_argument("--md-out", help="write markdown report to this path")
+    sa.add_argument("--output-dir", help="write findings.json + findings.md to this directory "
+                                         "(shortcut for --json-out/--md-out; useful for dogfooding against third-party repos)")
     sa.add_argument("--forgejo-issue", action="store_true",
                     help="upsert a single Forgejo issue with the report (needs FORGEJO_TOKEN/URL/REPO env)")
     sa.add_argument("--github-issue", action="store_true",

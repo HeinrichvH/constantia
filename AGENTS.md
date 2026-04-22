@@ -21,7 +21,7 @@ model, adversarially re-checked by another).
 | `src/constantia/reporter_*.py` | Issue reporters (Forgejo, GitHub). Mirror one to add another (GitLab, Slack, static HTML). |
 | `schemas/` | JSON Schema for `concepts.yaml` and `rules.yaml`. Public `$id` URLs — change them only with a version bump. |
 | `recipes/` | Goose recipe files. Prompts + model pins. Treat as data, not code. |
-| `examples/aquilo/` | Production concept set. Shape reference, not a starting template — fork and specialise. |
+| `examples/` | Production concept set. Shape reference, not a starting template — fork and specialise. |
 | `tests/` | Stdlib-only, no network. `PYTHONPATH=src pytest tests/ -v` runs all 39. |
 
 ## Invariants you must not break
@@ -43,7 +43,7 @@ model, adversarially re-checked by another).
 
 ```bash
 PYTHONPATH=src pytest tests/ -v    # must pass
-PYTHONPATH=src python3 -m constantia.cli validate examples/aquilo  # schema sanity
+PYTHONPATH=src python3 -m constantia.cli validate examples  # schema sanity
 ```
 
 If you touched `Dockerfile` or `requirements.txt`, build the image
@@ -91,7 +91,7 @@ Walk the repo. For each candidate, output:
     it, with a one-line note on why it looks unintentional.
   - **Check shape:** "guided (regex)", "guided (AST)", or
     "llm_investigated", with a one-sentence justification.
-  - **Prior art:** does `examples/aquilo/concepts.yaml` already cover
+  - **Prior art:** does `examples/concepts.yaml` already cover
     this? If so, skip it.
 
 Prioritise conventions where the violation would mislead an AI agent

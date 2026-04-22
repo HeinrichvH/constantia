@@ -36,8 +36,8 @@ def _stub_runner(response: dict):
 
 
 def test_extract_json_picks_last_json_line() -> None:
-    raw = 'noise\n{"early": 1}\nmore trace\n{"verdict": "fit", "summary": "", "findings": []}\n'
-    assert _extract_json(raw)["verdict"] == "fit"
+    raw = 'noise\n{"early": 1}\nmore trace\n{"summary": "", "items": []}\n'
+    assert _extract_json(raw)["items"] == []
 
 
 def test_split_citation_handles_range() -> None:
@@ -105,9 +105,15 @@ def test_invoke_investigator_parses_verdict() -> None:
         (root / "src").mkdir()
         (root / "src/Handler.cs").write_text("class Foo { void Bar() {} }\n")
         stub = _stub_runner({
-            "verdict": "fit",
             "summary": "All outbound calls forward request.Base.",
-            "findings": [],
+            "items": [
+                {
+                    "verdict": "fit",
+                    "citation": "src/Handler.cs:1",
+                    "symbol": "class Foo",
+                    "message": "Handler forwards request.Base.",
+                },
+            ],
         })
         v = invoke_investigator(
             _sample_concept(), _sample_rule(),
@@ -115,7 +121,52 @@ def test_invoke_investigator_parses_verdict() -> None:
             runner=stub,
         )
         assert v.verdict == "fit"
-        assert v.findings == ()
+        assert len(v.items) == 1
+        assert v.items[0]["verdict"] == "fit"
+
+
+def test_invoke_investigator_derives_violation_when_any_item_violates() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        (root / "src").mkdir()
+        (root / "src/Handler.cs").write_text("class Foo { void Bar() {} }\n")
+        stub = _stub_runner({
+            "summary": "mixed",
+            "items": [
+                {"verdict": "fit", "citation": "src/Handler.cs:1", "symbol": "class Foo", "message": "ok"},
+                {"verdict": "violation", "citation": "src/Handler.cs:1", "symbol": "void Bar", "message": "bad"},
+                {"verdict": "not_applicable", "citation": "src/Handler.cs:1", "symbol": "class Foo", "message": "n/a"},
+            ],
+        })
+        v = invoke_investigator(
+            _sample_concept(), _sample_rule(),
+            "src/Handler.cs", root,
+            runner=stub,
+        )
+        assert v.verdict == "violation"
+
+
+def test_invoke_investigator_back_compat_legacy_findings_shape() -> None:
+    """Old-shape response (verdict + findings[]) still parses — maps onto items."""
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        (root / "src").mkdir()
+        (root / "src/Handler.cs").write_text("class Foo { void Bar() {} }\n")
+        stub = _stub_runner({
+            "verdict": "violation",
+            "summary": "legacy",
+            "findings": [
+                {"message": "m", "citation": "src/Handler.cs:1", "symbol": "class Foo"},
+            ],
+        })
+        v = invoke_investigator(
+            _sample_concept(), _sample_rule(),
+            "src/Handler.cs", root,
+            runner=stub,
+        )
+        assert v.verdict == "violation"
+        assert v.items[0]["verdict"] == "violation"
+        assert v.items[0]["symbol"] == "class Foo"
 
 
 def test_resolve_verdict_drops_fabricated_and_line_corrects() -> None:
@@ -143,11 +194,13 @@ def test_resolve_verdict_drops_fabricated_and_line_corrects() -> None:
             file=file_rel,
             verdict="violation",
             summary="fabricates base",
-            findings=(
+            items=(
                 # Real violation — LLM said line 2 but symbol is on line 6.
-                {"message": "fabricated base", "citation": f"{file_rel}:2", "symbol": "new GrpcRequestBase"},
+                {"verdict": "violation", "message": "fabricated base", "citation": f"{file_rel}:2", "symbol": "new GrpcRequestBase"},
                 # Ghost — symbol doesn't appear in file.
-                {"message": "ghost", "citation": f"{file_rel}:5", "symbol": "NotInFile"},
+                {"verdict": "violation", "message": "ghost", "citation": f"{file_rel}:5", "symbol": "NotInFile"},
+                # A fit item — audit trail only, must NOT become a finding.
+                {"verdict": "fit", "message": "ok", "citation": f"{file_rel}:1", "symbol": "class Bad"},
             ),
             raw={},
         )
@@ -178,7 +231,7 @@ def test_resolve_verdict_picks_closest_when_symbol_repeats() -> None:
         from constantia.llm import Verdict
         v = Verdict(
             file=file_rel, verdict="violation", summary="",
-            findings=({"message": "m", "citation": f"{file_rel}:6", "symbol": "Foo.Do()"},),
+            items=({"verdict": "violation", "message": "m", "citation": f"{file_rel}:6", "symbol": "Foo.Do()"},),
             raw={},
         )
         findings, _ = resolve_verdict(v, _sample_rule(), root)
@@ -195,7 +248,9 @@ def test_run_llm_rule_preserves_coverage_guarantee() -> None:
         concept = _sample_concept()
         rule = _sample_rule()
         cat = Catalogue(concepts=(concept,), rules=(rule,))
-        stub = _stub_runner({"verdict": "fit", "summary": "", "findings": []})
+        stub = _stub_runner({"summary": "", "items": [
+            {"verdict": "fit", "citation": "x:1", "symbol": "class", "message": "ok"},
+        ]})
         res = run_llm_rule(rule, cat, root, runner=stub)
         assert res.files_scanned == 3
         assert len(res.verdicts) == 3
@@ -209,7 +264,9 @@ def test_run_llm_rule_respects_limit() -> None:
         for i in range(5):
             (root / f"src/File{i}.cs").write_text(f"class F{i} {{}}\n")
         cat = Catalogue(concepts=(_sample_concept(),), rules=(_sample_rule(),))
-        stub = _stub_runner({"verdict": "fit", "summary": "", "findings": []})
+        stub = _stub_runner({"summary": "", "items": [
+            {"verdict": "fit", "citation": "x:1", "symbol": "class", "message": "ok"},
+        ]})
         res = run_llm_rule(_sample_rule(), cat, root, limit=2, runner=stub)
         assert res.files_scanned == 2
         assert len(res.verdicts) == 2

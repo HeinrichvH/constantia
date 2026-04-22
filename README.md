@@ -57,9 +57,13 @@ it reads any language the model does.
 Constantia ships as a Docker image. You need a repository to scan, a Mistral API key, and — if you want to post findings back 
 to a forge — a Forgejo or GitHub token.
 
-```bash docker run --rm \
-  -v "$(pwd):/repo:ro" \ -v "$(pwd)/examples/aquilo:/config:ro" \ -e MISTRAL_API_KEY=$MISTRAL_API_KEY \ 
-  ghcr.io/boreas-aquilo/constantia:latest \ scan /config --repo-root /repo
+```bash
+docker run --rm \
+  -v "$(pwd):/repo:ro" \
+  -v "$(pwd)/examples:/config:ro" \
+  -e MISTRAL_API_KEY=$MISTRAL_API_KEY \
+  ghcr.io/boreas-aquilo/constantia:latest \
+  scan /config --repo-root /repo
 ```
 
 Add `--skip-llm` to run only the deterministic stage — useful in pre-commit hooks or fast CI where you want a cheap drift 
@@ -108,8 +112,9 @@ Rules pair a concept with a selector (glob + regex) and either a guided check (P
   llm_investigated: recipe: investigator
 ```
 
-See [`examples/aquilo/`](./examples/aquilo/) for a full production set — five concepts, nine rules — that catches gRPC base 
-fabrication, filter omissions, stale documentation citations, and translatable error keys.
+See [`examples/`](./examples/) for a full production set — nine concepts, thirteen rules — combining
+four universal rules (orphan markers, test-name drift, deprecation paths, agent-doc staleness) with five Aquilo-specific
+rules covering gRPC base fabrication, filter omissions, stale documentation citations, and translatable error keys.
 
 ## Design principles
 

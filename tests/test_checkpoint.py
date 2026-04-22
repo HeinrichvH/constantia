@@ -39,15 +39,15 @@ def test_checkpoint_append_and_load_roundtrip() -> None:
         fp = "sha256:abc"
         ck = Checkpoint(path, fp)
         ck.ensure_header()
-        v = Verdict(file="src/x.cs", verdict="fit", summary="s", findings=(), raw={})
+        v = Verdict(file="src/x.cs", verdict="fit", summary="s", items=(), raw={})
         ck.append(v)
         ck.append(Verdict(file="src/y.cs", verdict="violation", summary="",
-                          findings=({"message": "m", "citation": "src/y.cs:1", "symbol": "T"},),
+                          items=({"verdict": "violation", "message": "m", "citation": "src/y.cs:1", "symbol": "T"},),
                           raw={}))
         ck2 = Checkpoint(path, fp)
         loaded = ck2.load_existing()
         assert set(loaded) == {"src/x.cs", "src/y.cs"}
-        assert loaded["src/y.cs"].findings[0]["symbol"] == "T"
+        assert loaded["src/y.cs"].items[0]["symbol"] == "T"
 
 
 def test_checkpoint_discarded_on_fingerprint_mismatch() -> None:
@@ -55,7 +55,7 @@ def test_checkpoint_discarded_on_fingerprint_mismatch() -> None:
         path = Path(td) / "r.jsonl"
         Checkpoint(path, "sha256:old").ensure_header()
         Checkpoint(path, "sha256:old").append(
-            Verdict(file="src/x.cs", verdict="fit", summary="", findings=(), raw={})
+            Verdict(file="src/x.cs", verdict="fit", summary="", items=(), raw={})
         )
         # New run with different fingerprint → load returns empty.
         fresh = Checkpoint(path, "sha256:new").load_existing()
@@ -115,7 +115,7 @@ def test_run_llm_rule_partial_resume_only_missing_files() -> None:
         fp = checkpoint_fingerprint(_concept(), _rule())
         ck = Checkpoint(ck_dir / "r.jsonl", fp)
         ck.ensure_header()
-        ck.append(Verdict(file="src/F0.cs", verdict="fit", summary="", findings=(), raw={}))
+        ck.append(Verdict(file="src/F0.cs", verdict="fit", summary="", items=(), raw={}))
 
         res = run_llm_rule(_rule(), cat, root, runner=_runner, checkpoint_dir=ck_dir, verify=False)
         assert res.files_scanned == 3

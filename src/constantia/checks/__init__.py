@@ -9,7 +9,9 @@ rules.
 from .base import Check, Finding, get_check, register, registered_names
 
 # Importing submodules registers their checks as a side effect.
+from . import deprecation_migration  # noqa: F401
 from . import markdown_paths  # noqa: F401
+from . import orphan_markers  # noqa: F401
 from . import proto_handlers  # noqa: F401
 
 __all__ = ["Check", "Finding", "get_check", "register", "registered_names"]

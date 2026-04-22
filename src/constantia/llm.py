@@ -3,16 +3,21 @@
 Each `llm_investigated` rule evaluates one file at a time. The recipe
 at `recipes/investigator/recipe.yaml` is invoked as a Goose subprocess
 with the concept's principle + rule's investigation prompt + file
-path. Goose returns one JSON object on its last stdout line; we parse
-it, verify every finding's `symbol` is actually present near its
-`citation` line (the explore-recipe idiom — cheap fabrication guard),
-and return the survivors as `Finding`s.
+path. Goose returns one JSON object on its last stdout line shaped as
+`{summary, items: [...]}` — each item carries a per-item `verdict`
+enum (`fit`, `not_applicable`, `violation`). We derive the file-level
+verdict from the items, verify every item's `symbol` is actually
+present near its `citation` line (the explore-recipe idiom — cheap
+fabrication guard), and promote ONLY `violation` items into findings.
+
+The per-item verdict is a tool-call-style contract: the LLM commits
+per item, structurally preventing the "message contradicts verdict"
+drift that a single file-level verdict plus prose invites.
 
 No silent skips: every selector-matched file produces exactly one
-verdict (fit / violation / uncertain / not_applicable). Violations
-emit one Finding per reported line; everything else emits zero. The
-coverage guarantee — `len(selector_matches) == len(verdicts)` — is
-enforced by the caller (`run_llm_rule` in runner.py).
+verdict (fit / violation / uncertain / not_applicable). The coverage
+guarantee — `len(selector_matches) == len(verdicts)` — is enforced by
+the caller (`run_llm_rule` in runner.py).
 """
 from __future__ import annotations
 
@@ -38,12 +43,18 @@ class LlmError(RuntimeError):
 
 @dataclass(frozen=True)
 class Verdict:
-    """Raw per-file result — before finding-level citation verification."""
+    """Raw per-file result — before item-level citation verification.
+
+    `items` is the structured per-item array from the recipe — each
+    element has its own `verdict` enum (fit / not_applicable /
+    violation). `verdict` on this dataclass is the file-level roll-up
+    derived from the items.
+    """
 
     file: str  # repo-relative POSIX
-    verdict: str  # fit | violation | uncertain | not_applicable
+    verdict: str  # fit | violation | uncertain | not_applicable | error
     summary: str
-    findings: tuple[dict[str, Any], ...]
+    items: tuple[dict[str, Any], ...]
     raw: dict[str, Any]
 
 
@@ -142,14 +153,48 @@ def invoke_investigator(
             file=file_rel,
             verdict="error",
             summary=f"investigator failed: {exc}",
-            findings=(),
+            items=(),
             raw={"error": str(exc)},
         )
 
-    verdict = obj.get("verdict", "uncertain")
     summary = obj.get("summary", "")
-    findings = tuple(obj.get("findings") or ())
-    return Verdict(file=file_rel, verdict=verdict, summary=summary, findings=findings, raw=obj)
+    items = tuple(obj.get("items") or ())
+    # Back-compat: an old-shape response with `findings`+`verdict` is
+    # lifted into the new items shape so mixed fixtures don't explode.
+    if not items and "findings" in obj:
+        legacy_verdict = obj.get("verdict", "uncertain")
+        items = tuple(
+            {**f, "verdict": "violation"} for f in (obj.get("findings") or ())
+        )
+        file_verdict = legacy_verdict
+    else:
+        file_verdict = _derive_file_verdict(items, explicit=obj.get("verdict"))
+    return Verdict(file=file_rel, verdict=file_verdict, summary=summary, items=items, raw=obj)
+
+
+def _derive_file_verdict(
+    items: tuple[dict[str, Any], ...],
+    *,
+    explicit: str | None = None,
+) -> str:
+    """Roll the per-item verdicts up to one file-level verdict.
+
+    Priority: any `violation` → violation; else any `fit` → fit; else
+    any `not_applicable` → not_applicable; empty → uncertain. An
+    explicit `uncertain` at the top level wins (model couldn't decide).
+    """
+    if explicit == "uncertain":
+        return "uncertain"
+    if not items:
+        return "uncertain"
+    per_item = [str(i.get("verdict", "")).lower() for i in items]
+    if "violation" in per_item:
+        return "violation"
+    if "fit" in per_item:
+        return "fit"
+    if "not_applicable" in per_item:
+        return "not_applicable"
+    return "uncertain"
 
 
 @dataclass(frozen=True)
@@ -202,7 +247,11 @@ def resolve_verdict(
 
     out: list[Finding] = []
     kept = corrected = dropped_file = dropped_sym = 0
-    for f in verdict.findings:
+    # Only items the LLM structurally committed as violations become
+    # findings. `fit` / `not_applicable` items are audit trail, not
+    # signal.
+    violation_items = [i for i in verdict.items if str(i.get("verdict", "")).lower() == "violation"]
+    for f in violation_items:
         citation = f.get("citation", "")
         symbol = (f.get("symbol") or "").strip()
         message = f.get("message", "")

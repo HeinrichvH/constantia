@@ -45,16 +45,16 @@ def test_report_sections_have_stable_content_hashes() -> None:
         root = Path(td)
 
         guided_results = [RuleResult(rule=guided, files_scanned=2, findings=(_finding("g1"),))]
-        verdict = Verdict(file="src/x.cs", verdict="violation", summary="s", findings=(), raw={})
+        verdict = Verdict(file="src/x.cs", verdict="violation", summary="s", items=(), raw={})
         llm_results = [LlmRuleResult(
             rule=llm, files_scanned=1,
             verdicts=(verdict,),
             findings=(_finding("l1"),),
             dropped=(),
         )]
-        r1 = build_report(cat, root, Path("examples/aquilo"),
+        r1 = build_report(cat, root, Path("examples"),
                           guided_results=guided_results, llm_results=llm_results)
-        r2 = build_report(cat, root, Path("examples/aquilo"),
+        r2 = build_report(cat, root, Path("examples"),
                           guided_results=guided_results, llm_results=llm_results)
         assert r1.guided["content_hash"] == r2.guided["content_hash"]
         assert r1.llm["content_hash"] == r2.llm["content_hash"]
@@ -80,7 +80,7 @@ def test_report_sections_are_disjoint() -> None:
     guided_results = [RuleResult(rule=cat.rules[0], files_scanned=1, findings=(_finding("g1"),))]
     llm_results = [LlmRuleResult(
         rule=cat.rules[1], files_scanned=1,
-        verdicts=(Verdict(file="src/x.cs", verdict="fit", summary="", findings=(), raw={}),),
+        verdicts=(Verdict(file="src/x.cs", verdict="fit", summary="", items=(), raw={}),),
         findings=(),
         dropped=(VerifierDecision(finding=_finding("l1"), verdict="drop", reason="mock"),),
     )]
@@ -100,8 +100,8 @@ def test_report_json_round_trip_and_markdown_renders() -> None:
     llm_results = [LlmRuleResult(
         rule=cat.rules[1], files_scanned=2,
         verdicts=(
-            Verdict(file="src/a.cs", verdict="fit", summary="", findings=(), raw={}),
-            Verdict(file="src/b.cs", verdict="violation", summary="", findings=(), raw={}),
+            Verdict(file="src/a.cs", verdict="fit", summary="", items=(), raw={}),
+            Verdict(file="src/b.cs", verdict="violation", summary="", items=(), raw={}),
         ),
         findings=(_finding("l1"),),
         dropped=(VerifierDecision(finding=_finding("l1", line=99), verdict="drop", reason="mock-fixture"),),

@@ -1,0 +1,473 @@
+version: 1
+rules:
+  # ================================================================
+  # Universal rules — language and stack agnostic
+  # ================================================================
+
+  - id: orphan-markers-scan
+    concept_id: markers-are-trackable
+    name: TODO/FIXME/skip without ticket, author, or URL
+    description: >-
+      Walks source files for TODO/FIXME/XXX/HACK comments and test
+      skips; each must carry a ticket, author attribution, URL, or
+      version target within ±2 lines.
+    severity: low
+    selector:
+      file_glob: "**/*.{py,ts,tsx,js,jsx,mjs,cjs,rs,go,cs,razor,java,kt,rb,php,swift,scala}"
+      exclude_globs:
+        - "**/node_modules/**"
+        - "**/dist/**"
+        - "**/build/**"
+        - "**/target/**"
+        - "**/bin/**"
+        - "**/obj/**"
+        - "**/.venv/**"
+        - "**/vendor/**"
+        - "**/*.min.js"
+        - "**/*.d.ts"
+    type: guided
+    guided:
+      check: orphan-markers-without-reference
+
+  - id: test-names-claim-behaviour
+    concept_id: tests-assert-their-name
+    name: Test names must match the assertions in the body
+    description: >-
+      LLM-investigated: for each test in the file, decide whether the
+      test body actually asserts the behaviour its name claims.
+      Fixture-only / arrange-act-no-assert tests are violations.
+    severity: medium
+    selector:
+      file_glob: "**/*.{test,spec}.{ts,tsx,js,jsx,mjs,cjs}"
+      exclude_globs:
+        - "**/node_modules/**"
+        - "**/dist/**"
+        - "**/.nuxt/**"
+    type: llm_investigated
+    llm_investigated:
+      investigation: |
+        Apply the principle of concept {concept.id} to this test file.
+
+        Emit ONE `item` per `it(...)` / `test(...)` / `describe(...)`
+        block. Each item's `verdict` is one of `fit`,
+        `not_applicable`, `violation` — the enum IS the commitment;
+        the `message` just justifies that choice. The caller only
+        promotes `verdict: violation` items into the report, so a
+        mis-verdicted item cannot drift into a false positive via
+        prose alone.
+
+        Set `citation` to `<this-file>:<line-of-the-block-opener>`
+        and `symbol` to the literal test name in quotes (e.g.
+        `"Should throw error when X"`). The caller re-reads the
+        file and drops items whose symbol isn't present.
+
+        ## Choosing the verdict
+
+        ### `not_applicable` (use this FIRST — it's the common case)
+
+        Return `not_applicable` when ANY of these hold:
+        - The test name is vague or generic and makes no specific
+          behavioural claim. Examples: "works", "Works",
+          "should work", "basic", "handles input", "is valid",
+          "info is valid", "getConnInfo works", "sanity". These
+          names do not promise a specific observable outcome, so
+          there is nothing to mismatch against.
+        - The test block is a `describe(...)` that only groups other
+          tests (no assertions of its own).
+        - The test is skipped (`it.skip`, `xit`, `test.skipIf`) —
+          covered by a different rule.
+
+        If you find yourself writing "the name is generic" or "does
+        not specify a concrete behaviour" in your reasoning, the
+        verdict MUST be `not_applicable`, never `violation`.
+
+        ### `fit` (the second most common case)
+
+        The test name makes a specific claim AND the body has at
+        least one assertion that exercises that claim. Be GENEROUS
+        — the bar is "asserts the named outcome", not "asserts it
+        exhaustively".
+        - Name "returns X on Y" + body asserts the return value
+          matches X (any observable property of X) → fit.
+        - Name "throws error when Z" + body asserts
+          `toThrowError()` or `toThrowError(SomeErrorType)` → fit.
+          The name said "throws error", not "throws error with
+          exact message 'foo'". A type-level throw check satisfies
+          the name.
+        - Name "info has IPv6 address type" + body asserts
+          `info.remote.addressType === 'IPv6'` → fit.
+
+        ### `violation` (rare — be confident)
+
+        ALL of these hold:
+        1. The name makes a specific, concrete behavioural claim
+           (e.g. "returns 404 when user not found",
+           "rejects tokens older than 24h",
+           "serializes dates as ISO 8601").
+        2. The body runs setup and invokes the code under test.
+        3. The body has NO assertion, or only asserts things
+           unrelated to the named claim (e.g. name says "returns
+           404" but body only asserts the response is defined).
+
+        For a `violation`, the `message` names the specific claim
+        in the test name and the specific assertion (or absence
+        thereof) that fails to verify it.
+
+        ## Calibration examples from prior runs
+
+        These were marked `violation` in error by earlier runs and
+        should be `not_applicable` or `fit`:
+        - `it('Works', ...)` + any body — name is generic →
+          `not_applicable`.
+        - `it('Should info is valid', ...)` + any body — name is
+          generic ("valid" is not a concrete claim) →
+          `not_applicable`.
+        - `it('Should throw error when X', () => {
+          expect(() => fn()).toThrowError(TypeError) })` — name
+          says "throw error", body asserts a throw → `fit`.
+      proof_required: true
+
+  - id: deprecation-migration-scan
+    concept_id: deprecations-point-somewhere
+    name: Deprecation marker without migration hint
+    description: >-
+      Scans source for `@deprecated`, `[Obsolete]`, `#[deprecated]`,
+      and `DeprecationWarning`; each must carry a replacement hint,
+      version target, issue, or URL within ±3 lines.
+    severity: medium
+    selector:
+      file_glob: "**/*.{py,ts,tsx,js,jsx,mjs,cjs,rs,go,cs,razor,java,kt}"
+      exclude_globs:
+        - "**/node_modules/**"
+        - "**/dist/**"
+        - "**/build/**"
+        - "**/target/**"
+        - "**/bin/**"
+        - "**/obj/**"
+        - "**/.venv/**"
+        - "**/vendor/**"
+        - "**/*.min.js"
+        - "**/*.d.ts"
+    type: guided
+    guided:
+      check: deprecation-has-migration-path
+
+  - id: agent-docs-match-code-scan
+    concept_id: agent-docs-match-code
+    name: Agent-facing docs must match code
+    description: >-
+      For each concrete, verifiable claim in CLAUDE.md / AGENTS.md /
+      .cursorrules (build commands, file locations, CLI tools,
+      enforced conventions), check that code, config, or tooling
+      actually backs the claim. Abstract principles are skipped.
+    severity: high
+    selector:
+      file_glob: "{CLAUDE.md,AGENTS.md,.cursorrules,**/CLAUDE.md,**/AGENTS.md,**/.cursorrules}"
+      exclude_globs:
+        - "**/node_modules/**"
+        - "**/dist/**"
+        - "**/build/**"
+        - "**/.venv/**"
+        - "**/vendor/**"
+    type: llm_investigated
+    llm_investigated:
+      investigation: |
+        Apply the principle of concept {concept.id} to this
+        agent-facing doc file. Your target is ONE doc; the
+        judgement is per-claim.
+
+        ## What counts as an item
+
+        Emit ONE `item` per **concrete, verifiable claim** the doc
+        makes. A claim is verifiable when you can, in principle,
+        point at a specific code/config/tool artefact that either
+        supports or contradicts it. Examples of verifiable claims:
+        - "Run `pnpm build` to produce the production bundle."
+        - "The `fj` CLI lives in `/usr/local/bin/`."
+        - "Every new Nuxt page must be added to `publicPaths` in
+          `app.config.ts`."
+        - "Use `Failure(key)`, never `Error(msg)`, for handler
+          errors."
+        - "Secrets are stored in OpenBao under the `boreas`
+          AppRole."
+        - "We use `argo workflows` for CI, not GitHub Actions."
+
+        Do NOT emit items for:
+        - Philosophy / mindset / principles ("be curious", "measure
+          twice, cut once", "we prefer clarity").
+        - Meta-statements about the partnership or the document
+          itself.
+        - Bullet lists that describe WHY rather than WHAT.
+        - Vague aspirations ("we aim for traceability").
+
+        ## Choosing the verdict
+
+        For each item, use `rg` / `text_editor view` to check
+        whether the claim is backed by reality.
+
+        - `fit`: you can point at a concrete code/config/tool
+          artefact that backs the claim. Cite the backing artefact
+          in `evidence`.
+        - `violation`: the claim makes a specific, falsifiable
+          assertion AND you found evidence it is stale. The script
+          has been renamed, the file doesn't exist, the CLI isn't
+          on `$PATH`, the convention is widely violated in code
+          you checked. Cite the counter-evidence in `evidence`.
+        - `not_applicable`: the claim is too abstract to verify
+          concretely, OR verifying it would require domain
+          knowledge / infrastructure access you don't have (e.g.
+          "the cluster lives in Falkenstein"). One sentence
+          reason.
+
+        ## Citation rules
+
+        - `citation` is `{file_path}:<line-of-the-claim>`.
+        - `symbol` is a distinctive substring from the doc line
+          (the quoted phrase the claim centres on — a command, a
+          filename, a convention name). The caller verifies this
+          is actually present in the doc.
+        - Be CONSERVATIVE about violations. If you're not sure
+          the code contradicts the claim, return `fit` or
+          `not_applicable`, not `violation`. False positives in
+          this rule are expensive — they train the reader to
+          distrust the doc.
+
+        ## One-claim-at-most-once rule
+
+        If the same concrete claim is repeated in multiple places
+        in the doc, emit it once at its first occurrence. Don't
+        flood the report with duplicates.
+      proof_required: true
+
+  # ================================================================
+  # Aquilo-specific rules — .NET / gRPC / MediatR / Nuxt 4 stack
+  # ================================================================
+
+  # --- Concept: grpc-request-base-forwarding --------------------------
+  # Two rules: C# backend and TS/Vue frontend. Same concept, different
+  # idioms — fabrication in C# looks like `new GrpcRequestBase { … }`,
+  # in TS like an inline `{ correlationId: crypto.randomUUID() }`.
+  - id: base-forwarded-not-fabricated-csharp
+    concept_id: grpc-request-base-forwarding
+    name: C# handlers forward request.Base, never fabricate
+    description: >-
+      In handler files that touch GrpcRequestBase/GrpcFilterRequestBase,
+      no outbound call constructs a new base with only a correlationId.
+    severity: critical
+    selector:
+      file_glob: "src/**/*.cs"
+      file_contains_regex: "GrpcRequestBase|GrpcFilterRequestBase"
+      exclude_globs:
+        - "**/bin/**"
+        - "**/obj/**"
+        - "**/UnitTests/**"
+        - "**/*.Tests.cs"
+    type: llm_investigated
+    llm_investigated:
+      investigation: |
+        Apply the principle of concept {concept.id} to this C# file.
+        Identify every outbound gRPC call. For each, decide whether
+        it forwards the incoming request.Base (fit) or fabricates a
+        new GrpcRequestBase / GrpcFilterRequestBase populated only
+        with correlationId / a fresh HttpContext (violation).
+        Cite file:line for each outbound call and tag it fit or
+        violation. Return a clean verdict if all calls fit.
+      proof_required: true
+
+  - id: base-forwarded-not-fabricated-typescript
+    concept_id: grpc-request-base-forwarding
+    name: TS/Vue frontend forwards request.base, never fabricates
+    description: >-
+      In TS/Vue files that construct a gRPC request carrying a base
+      field, the base is sourced from an incoming request / auth
+      composable / pinia store, not fabricated inline with just a
+      correlationId.
+    severity: critical
+    selector:
+      file_glob: "src/**/*.{ts,vue}"
+      file_contains_regex: "GrpcRequestBase|GrpcFilterRequestBase"
+      exclude_globs:
+        - "**/node_modules/**"
+        - "**/dist/**"
+        - "**/.nuxt/**"
+        - "**/*.spec.ts"
+        - "**/*.test.ts"
+        - "**/*.d.ts"
+    type: llm_investigated
+    llm_investigated:
+      investigation: |
+        Apply the principle of concept {concept.id} to this TS/Vue
+        file. For every construction of a gRPC request object that
+        carries a base field, decide whether the base is sourced
+        from an upstream value (incoming request, auth composable,
+        pinia/store selector) — fit — or fabricated inline (e.g.
+        `{ correlationId: crypto.randomUUID() }`) — violation.
+        Cite file:line for each construction and tag fit/violation.
+      proof_required: true
+
+  # --- Concept: grpc-filter-organization-ids --------------------------
+  - id: filter-request-sets-organization-ids-csharp
+    concept_id: grpc-filter-organization-ids
+    name: C# callers populate OrganizationIds on filter requests
+    description: >-
+      Callers constructing a gRPC filter request message that carries
+      OrganizationIds assign the field (not only Base.OrganizationId).
+    severity: high
+    selector:
+      file_glob: "src/**/*.cs"
+      file_contains_regex: "GrpcFilterRequestBase|OrganizationIds\\s*="
+      exclude_globs:
+        - "**/bin/**"
+        - "**/obj/**"
+        - "**/UnitTests/**"
+    type: llm_investigated
+    llm_investigated:
+      investigation: |
+        Apply the principle of concept {concept.id} to this C# file.
+        For every construction of a gRPC filter request message
+        whose message type has an OrganizationIds field, decide
+        whether the code populates OrganizationIds. Leaving it empty
+        while only setting Base.OrganizationId is a violation.
+        Cite file:line for each construction site.
+      proof_required: true
+
+  - id: filter-request-sets-organization-ids-typescript
+    concept_id: grpc-filter-organization-ids
+    name: TS/Vue callers populate organizationIds on filter requests
+    description: >-
+      Frontend callers constructing a gRPC filter request that
+      carries organizationIds assign the field (not only base.organizationId).
+    severity: high
+    selector:
+      file_glob: "src/**/*.{ts,vue}"
+      file_contains_regex: "GrpcFilterRequestBase|organizationIds\\s*[:=]"
+      exclude_globs:
+        - "**/node_modules/**"
+        - "**/dist/**"
+        - "**/.nuxt/**"
+        - "**/*.spec.ts"
+        - "**/*.test.ts"
+        - "**/*.d.ts"
+    type: llm_investigated
+    llm_investigated:
+      investigation: |
+        Apply the principle of concept {concept.id} to this TS/Vue
+        file. For every construction of a gRPC filter request
+        object whose type has an organizationIds field, decide
+        whether the code populates organizationIds. Leaving it
+        empty or omitted while only setting base.organizationId is
+        a violation. Cite file:line for each construction site.
+      proof_required: true
+
+  # --- Concept: grpc-proto-first --------------------------------------
+  - id: proto-services-have-handlers
+    concept_id: grpc-proto-first
+    name: Every proto service has a full handler set
+    description: >-
+      For each `service { … }` block, every rpc has a handler symbol
+      somewhere in src/.
+    severity: high
+    selector:
+      file_glob: "src/**/*.proto"
+      file_contains_regex: "^service\\s+\\w+"
+    type: guided
+    guided:
+      check: proto-rpcs-have-handlers
+      config:
+        handler_search_glob: "src/**/*.cs"
+
+  - id: no-handrolled-http-to-grpc-services
+    concept_id: grpc-proto-first
+    name: Handlers do not call peer services via raw HttpClient
+    description: >-
+      A handler invoking another peer service in this repo must use
+      the generated gRPC stub, not HttpClient / WebClient / raw REST.
+    severity: high
+    selector:
+      file_glob: "src/**/Handler/*.cs"
+      file_contains_regex: "HttpClient|WebClient"
+      exclude_globs:
+        - "**/bin/**"
+        - "**/obj/**"
+        - "**/UnitTests/**"
+    type: llm_investigated
+    llm_investigated:
+      investigation: |
+        Apply the principle of concept {concept.id} to this file.
+        Does this handler call another peer backend service in
+        this repo via HttpClient / WebClient / raw REST, instead
+        of the generated gRPC stub? Cite file:line for each such
+        call. External (third-party) HTTP targets are fine — do
+        not flag them.
+      proof_required: true
+
+  # --- Concept: translatable-error-keys --------------------------------
+  - id: handler-failures-use-translatable-keys
+    concept_id: translatable-error-keys
+    name: Handler Failure/Error uses a translatable key, not a raw string
+    description: >-
+      In handler files that return Failure or Error results, the
+      message must be a dotted translatable key, not a raw
+      natural-language string.
+    severity: medium
+    selector:
+      file_glob: "src/**/Handler/*.cs"
+      file_contains_regex: "Failure\\(|new\\s+Error\\("
+      exclude_globs:
+        - "**/bin/**"
+        - "**/obj/**"
+        - "**/UnitTests/**"
+        - "**/*.Tests.cs"
+    type: llm_investigated
+    llm_investigated:
+      investigation: |
+        Apply the principle of concept {concept.id} to this C# file.
+        For every `Failure("…")` and `new Error("…")` call, decide
+        whether the string argument is a translatable key (dotted,
+        lowercase, no spaces, looks like `errors.scope.name`) — fit
+        — or a raw natural-language sentence (contains spaces and
+        normal prose) — violation. Cite file:line for each call.
+      proof_required: true
+
+  # --- Concept: docs-path-citations ------------------------------------
+  - id: cited-path-exists
+    concept_id: docs-path-citations
+    name: Cited path exists on disk
+    description: >-
+      Every backtick-quoted repo-relative path in a markdown doc
+      resolves to a real file or directory.
+    severity: medium
+    selector:
+      file_glob: "**/*.md"
+      exclude_globs:
+        - "**/node_modules/**"
+        - "**/CHANGELOG.md"
+    type: guided
+    guided:
+      check: markdown-cited-paths-exist
+
+  - id: cited-path-purpose-matches
+    concept_id: docs-path-citations
+    name: Cited file's current purpose matches doc claim
+    description: >-
+      Beyond existence: the file's current contents must still do
+      what the surrounding paragraph says it does.
+    severity: medium
+    selector:
+      file_glob: "**/*.md"
+      # Only docs actually citing a repo-relative path in backticks.
+      # Cuts scan cost from 356 → far fewer files; docs that only
+      # reference paths by URL/prose are irrelevant to this rule.
+      file_contains_regex: "`[^`\\n]*/[^`\\n]*`"
+      exclude_globs:
+        - "**/node_modules/**"
+        - "**/CHANGELOG.md"
+    type: llm_investigated
+    llm_investigated:
+      investigation: |
+        Apply the principle of concept {concept.id} to this markdown
+        file. For each backtick-quoted repo-relative path it cites,
+        decide whether the cited file's current behaviour still
+        matches the surrounding paragraph's claim about it. Cite
+        doc_line + target_path + evidence for each drift.
+      proof_required: true
